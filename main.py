@@ -4,7 +4,7 @@ import marshal
 
 from aiogram import Bot, Dispatcher, executor, types
 
-API_TOKEN = '6122179189:AAEzxajtpOE609L1ET65MW8SuXyzqGPZ0DI'
+API_TOKEN = os.environ.get("token")
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 launch_on_message = {}
