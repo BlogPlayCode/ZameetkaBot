@@ -26,7 +26,8 @@ settings_markup.add(types.KeyboardButton("✨ Mеню"))
 
 # вывод текста о включении бота
 async def on_ready(_):
-    print(f"{bot.me.full_name} is online")
+    me = await bot.get_me()
+    print(f"{me.full_name} is online")
 
 
 # удобное получение заметки
