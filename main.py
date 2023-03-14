@@ -42,6 +42,7 @@ def get_note(_id: int, filename: str):
 # обработка начальной команды
 @dp.message_handler(commands=['start'])  # отслеживание команды start
 async def on_start(message: types.Message):
+    await message.answer("👋")
     await message.answer(
         "Приветствую, я бот для создания и сохранения заметок.")
     dirname = str(message.from_user.id)
@@ -54,15 +55,26 @@ async def on_start(message: types.Message):
 async def add_new_note3(message: types.Message):  # создание новой заметки(конец)
     if not message.text:
         return
+    with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "rb") as f:
+        note = marshal.loads(f.read())
+    if f"{message.from_user.id}_editmode" in temp:
+        del temp[f"{message.from_user.id}_editmode"]
     if message.text != "👌 Как сейчас":
-        with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "rb") as f:
-            note = marshal.loads(f.read())
         note["content"] = message.html_text
         with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "wb") as f:
             f.write(marshal.dumps(note))
     await message.answer("✨ Заметка сохранена")
     global launch_on_message
     del launch_on_message[message.from_user.id]
+    filename = f"{temp[message.from_user.id]}.data"
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.insert(types.InlineKeyboardButton("Изменить заметку", callback_data=f"EditNote_{filename}"))
+    markup.insert(types.InlineKeyboardButton("Удалить заметку", callback_data=f"RequestDelete_{filename}"))
+    await message.answer(
+        f"<strong>{note['title']}</strong>\n\n{note['content']}",
+        parse_mode=types.ParseMode.HTML,
+        reply_markup=markup
+    )
     if f"{message.from_user.id}_{temp[message.from_user.id]}" in temp:
         await temp[f"{message.from_user.id}_{temp[message.from_user.id]}"].edit_text("Заметка была отредактирована")
         del temp[f"{message.from_user.id}_{temp[message.from_user.id]}"]
@@ -77,18 +89,18 @@ async def add_new_note2(message: types.Message):  # создание новой 
         return await message.answer(
             "Название слишком длинное, придумайте что-нибудь покороче"
         )
+    markup = types.ReplyKeyboardRemove()
     if message.from_user.id not in temp:
         temp[message.from_user.id] = message.message_id
-    try:
-        with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "rb") as f:
-            note = marshal.loads(f.read())
-    except:
-        note = {"title": "Untitled", "content": "None"}
-    note["title"] = message.text
-    with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "wb") as f:
-        f.write(marshal.dumps(note))
-    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True)
-    markup.add(types.KeyboardButton("👌 Как сейчас"))
+    note = {"title": "Untitled", "content": "None"}
+    if f"{message.from_user.id}_editmode" in temp:
+        note = get_note(message.from_user.id, f"{temp[message.from_user.id]}.data")
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.add(types.KeyboardButton("👌 Как сейчас"))
+    if message.text != "👌 Как сейчас":
+        note["title"] = message.text
+        with open(f"Users/{message.from_user.id}/{temp[message.from_user.id]}.data", "wb") as f:
+            f.write(marshal.dumps(note))
     await message.answer("Введите текст заметки", reply_markup=markup)
     global launch_on_message
     launch_on_message[message.from_user.id] = add_new_note3
@@ -98,8 +110,11 @@ async def add_new_note2(message: types.Message):  # создание новой 
 async def add_new_note(message: types.Message, user_id=None):  # создание новой заметки(ожидание названия)
     if not user_id:
         user_id = message.from_user.id
-    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True)
-    markup.add(types.KeyboardButton("👌 Как сейчас"))
+    markup = types.ReplyKeyboardRemove()
+    if f"{user_id}_editmode" in temp:
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.insert(types.KeyboardButton("👌 Как сейчас"))
+        markup.insert(types.KeyboardButton("🚫 Отмена"))
     await message.answer(
         "Придумайте название для заметки, старайтесь сделать его коротким и понятным",
         reply_markup=markup
@@ -157,10 +172,13 @@ async def view_notes(message: types.Message):  # показ заметок
 async def settings(message: types.Message):  # открытие настроек
     user = message.from_user
     mention = f"({user.mention})" if user.mention else ""
+    notes = os.listdir(f"Users/{user.id}")
+    if "reverse" in notes:
+        notes.remove("reverse")
     await message.answer(f"""
 Настройки профиля {user.full_name} {mention}
 
-Заметок: {len(os.listdir(f"Users/{user.id}"))}
+Заметок: {len(notes)}
 ID: {user.id}
 """, reply_markup=settings_markup)
 
@@ -184,7 +202,13 @@ async def reverse(message: types.Message):  # изменение порядка 
 
 @dp.message_handler()
 async def on_message(message: types.Message):  # во всех остальных случаях
-    if message.from_user.id in launch_on_message:
+    if message.text == "🚫 Отмена":
+        if message.from_user.id in launch_on_message:
+            del launch_on_message[message.from_user.id]
+        for i in list(temp):
+            if str(i).startswith(str(message.from_user.id)):
+                del temp[i]
+    elif message.from_user.id in launch_on_message:
         return await launch_on_message[message.from_user.id](message)
     await message.answer("✨ Главное меню", reply_markup=menu_markup)
 
@@ -193,6 +217,11 @@ async def on_message(message: types.Message):  # во всех остальны�
 @dp.callback_query_handler()
 async def callback_handler(callback: types.CallbackQuery):
     if callback.data == "OpenMenu":  # при нажатии "В меню"
+        if callback.from_user.id in launch_on_message:
+            del launch_on_message[callback.from_user.id]
+        for i in temp:
+            if str(i).startswith(str(callback.from_user.id)):
+                del temp[i]
         await callback.message.answer("✨ Главное меню", reply_markup=menu_markup)
     elif callback.data == "DeleteThis":  # при нажатии на кнопку удалить сообщение
         await callback.message.delete()
@@ -208,8 +237,19 @@ async def callback_handler(callback: types.CallbackQuery):
     elif callback.data.startswith("NextPage"):  # листание вперед в списке заметок
         num = float(int(callback.data[9:]) / 2)
         num2 = float(num + 3)
-        notes = os.listdir(f"Users/{callback.from_user.id}")
         markup = types.InlineKeyboardMarkup(row_width=2)
+        path = f"Users/{callback.from_user.id}"
+        if os.name == "nt":
+            path = path.replace("/", "\\")
+        file_list = os.listdir(path)
+        _reverse = False
+        if "reverse" in file_list:
+            _reverse = True
+            file_list.remove("reverse")
+        file_list = [os.path.join(path, i) for i in file_list]
+        notes = sorted(file_list, key=os.path.getmtime, reverse=_reverse)
+        notes = [i[len(path)+1:] for i in notes]
+        del file_list
         if num2 * 2 > len(notes):
             num2 = float((len(notes) + 1) / 2)
         for i in range(int(num), int(num2)):
@@ -241,8 +281,19 @@ async def callback_handler(callback: types.CallbackQuery):
     elif callback.data.startswith("PrevPage"):  # листание назад в списке заметок
         num = float(int(int(callback.data[9:])) / 2)
         num2 = float(num + 3)
-        notes = os.listdir(f"Users/{callback.from_user.id}")
         markup = types.InlineKeyboardMarkup(row_width=2)
+        path = f"Users/{callback.from_user.id}"
+        if os.name == "nt":
+            path = path.replace("/", "\\")
+        file_list = os.listdir(path)
+        _reverse = False
+        if "reverse" in file_list:
+            _reverse = True
+            file_list.remove("reverse")
+        file_list = [os.path.join(path, i) for i in file_list]
+        notes = sorted(file_list, key=os.path.getmtime, reverse=_reverse)
+        notes = [i[len(path)+1:] for i in notes]
+        del file_list
         if num2 * 2 > len(notes):
             num2 = float((len(notes) + 1) / 2)
         for i in range(int(num), int(num2)):
@@ -287,9 +338,9 @@ async def callback_handler(callback: types.CallbackQuery):
         )
     elif callback.data.startswith("EditNote"):  # изменить заметку
         filename = callback.data[9:-5]
-        global temp
         temp[f"{callback.from_user.id}_{filename}"] = callback.message
         temp[callback.from_user.id] = filename
+        temp[f"{callback.from_user.id}_editmode"] = True
         await add_new_note(callback.message, callback.from_user.id)
     elif callback.data.startswith("RequestDelete"):  # спросить о удалении заметки
         filename = callback.data[14:]
